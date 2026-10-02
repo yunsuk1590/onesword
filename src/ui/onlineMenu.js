@@ -77,10 +77,12 @@ export class OnlineMenu {
         e.status.textContent = '방 만드는 중…';
         break;
       case 'waiting':
-        e.status.textContent = '친구에게 이 코드를 알려 주세요. 친구가 입력하면 연결됩니다.';
+        e.status.textContent =
+          s.detail ??
+          '친구에게 이 코드를 알려 주세요. 친구가 입력하면 연결됩니다.\n(기다리는 동안 이 창을 최소화하거나 다른 탭으로 가리지 마세요 — 접속 신호를 놓칠 수 있습니다)';
         break;
       case 'joining':
-        e.status.textContent = `${s.code} 방에 연결하는 중…`;
+        e.status.textContent = `${s.code} 방에 연결하는 중… ${s.detail ?? ''}`;
         break;
       case 'handshake':
         e.status.textContent = '연결됨 — 상대 정보 확인 중…';

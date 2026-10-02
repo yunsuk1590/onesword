@@ -65,16 +65,31 @@ function wrapConnection(conn) {
  * 방 만들기. 코드가 정해지면 onCode, 상대가 들어오면 onConnected(transport).
  * @returns {{ close: () => void }}
  */
-export function hostRoom({ onCode, onConnected, onError }) {
+export function hostRoom({ onCode, onConnected, onError, onStatus }) {
   let peer = null;
   let tries = 0;
   let joined = false;
   let destroyed = false;
 
+  // 중계 서버와의 연결 상태 점검: 끊겨 있으면 다시 붙는다.
+  // (창이 백그라운드에 있으면 브라우저가 타이머를 늦춰서 중계 서버 연결이 조용히 끊길 수 있다 →
+  //  그 상태로는 상대의 접속 신호를 받지 못해 상대 쪽에서 '연결 시간 초과'가 난다)
+  const checkHealth = () => {
+    if (joined || destroyed || !peer || peer.destroyed || !peer.disconnected) return;
+    onStatus?.('중계 서버에 다시 연결하는 중…');
+    peer.reconnect();
+  };
+  const healthTimer = setInterval(checkHealth, CONFIG.online.hostHealthCheckMs);
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') checkHealth();
+  };
+  globalThis.document?.addEventListener('visibilitychange', onVisible);
+
   const attempt = () => {
     const code = generateRoomCode();
     peer = new Peer(peerIdForRoom(code));
     peer.on('open', () => {
+      // 다시 연결됐을 때도 같은 코드로 'open'이 온다
       if (!destroyed) onCode(code);
     });
     peer.on('connection', (conn) => {
@@ -99,16 +114,15 @@ export function hostRoom({ onCode, onConnected, onError }) {
       if (!joined) onError(describePeerError(err));
       // 연결된 뒤의 중계 서버 오류는 무시 (게임 데이터는 직접 연결로 오간다)
     });
-    peer.on('disconnected', () => {
-      // 상대를 기다리는 중에 중계 서버와 끊기면 다시 붙는다
-      if (!joined && !destroyed) peer.reconnect();
-    });
+    peer.on('disconnected', () => checkHealth());
   };
 
   attempt();
   return {
     close() {
       destroyed = true;
+      clearInterval(healthTimer);
+      globalThis.document?.removeEventListener('visibilitychange', onVisible);
       peer?.destroy();
     },
   };
@@ -116,38 +130,79 @@ export function hostRoom({ onCode, onConnected, onError }) {
 
 /**
  * 코드로 참가.
+ * 한 번에 안 열리면 몇 번 다시 시도하고, 끝내 실패하면 어느 단계에서 막혔는지 알려준다.
  * @returns {{ close: () => void }}
  */
-export function joinRoom(code, { onConnected, onError }) {
+export function joinRoom(code, { onConnected, onError, onStatus }) {
+  const cfg = CONFIG.online;
   let done = false;
+  let attempts = 0;
+  let conn = null;
+  let retryTimer = null;
+  let serverOpen = false;
   const peer = new Peer();
+
+  const cleanup = () => {
+    done = true;
+    clearTimeout(totalTimer);
+    clearTimeout(retryTimer);
+  };
   const fail = (message) => {
     if (done) return;
-    done = true;
-    clearTimeout(timer);
+    cleanup();
     onError(message);
     peer.destroy();
   };
-  const timer = setTimeout(
-    () => fail('연결 시간이 초과됐습니다. 코드를 확인하거나 다시 시도하세요.'),
-    CONFIG.online.joinTimeoutMs,
-  );
+  const totalTimer = setTimeout(() => fail(timeoutMessage()), cfg.joinTimeoutMs);
+
+  /** 시간 초과 시, 어느 단계에서 막혔는지에 따라 다른 안내 */
+  const timeoutMessage = () => {
+    if (!serverOpen) return '중계 서버(PeerJS)가 응답하지 않습니다. 인터넷 연결을 확인하고 잠시 후 다시 시도하세요.';
+    const ice = conn?.peerConnection?.iceConnectionState;
+    if (ice === 'checking' || ice === 'failed' || ice === 'disconnected') {
+      return '상대와 직접 연결하지 못했습니다. 네트워크(회사·학교 방화벽, 일부 모바일 데이터)가 P2P 연결을 막고 있을 수 있습니다.';
+    }
+    return '방장이 접속 신호에 응답하지 않습니다. 방장 창이 최소화되어 있거나 다른 탭에 가려져 있지 않은지 확인하고, 방장이 새로고침해서 새 방을 만든 뒤 다시 시도하세요.';
+  };
+
+  const tryConnect = () => {
+    if (done) return;
+    attempts++;
+    onStatus?.(attempts === 1 ? '방장에게 접속 신호를 보내는 중…' : `다시 시도하는 중… (${attempts}/${cfg.joinAttempts})`);
+    conn?.close();
+    const c = peer.connect(peerIdForRoom(code), { reliable: true });
+    conn = c;
+    c.on('open', () => {
+      if (done || c !== conn) return c.close();
+      cleanup();
+      onConnected(wrapConnection(c));
+    });
+    // 일정 시간 안에 안 열리면 새로 시도 (신호가 한 번 유실되는 경우가 있다)
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      if (!done && attempts < cfg.joinAttempts) tryConnect();
+    }, cfg.connectRetryMs);
+  };
 
   peer.on('open', () => {
-    const conn = peer.connect(peerIdForRoom(code), { reliable: true });
-    conn.on('open', () => {
-      if (done) return conn.close();
-      done = true;
-      clearTimeout(timer);
-      onConnected(wrapConnection(conn));
-    });
+    serverOpen = true;
+    tryConnect();
   });
-  peer.on('error', (err) => fail(describePeerError(err)));
+  peer.on('error', (err) => {
+    if (done) return;
+    // 방이 안 보이면, 방장이 중계 서버에 잠깐 다시 붙는 중일 수 있으니 한 번 더 확인
+    if (err.type === 'peer-unavailable' && attempts < cfg.joinAttempts) {
+      clearTimeout(retryTimer);
+      onStatus?.('방을 찾는 중…');
+      retryTimer = setTimeout(tryConnect, cfg.unavailableRetryMs);
+      return;
+    }
+    fail(describePeerError(err));
+  });
 
   return {
     close() {
-      done = true;
-      clearTimeout(timer);
+      cleanup();
       peer.destroy();
     },
   };

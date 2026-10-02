@@ -37,7 +37,8 @@ export class Lobby {
   }
 
   #blank() {
-    return { status: 'idle', role: null, code: null, remote: null, myReady: false, remoteReady: false, error: null };
+    // detail: 연결 진행 상황 안내 (재시도 중 등)
+    return { status: 'idle', role: null, code: null, remote: null, myReady: false, remoteReady: false, error: null, detail: null };
   }
 
   #set(patch) {
@@ -49,9 +50,10 @@ export class Lobby {
     this.leave();
     this.#set({ status: 'creating', role: 'host' });
     this.handle = this.net.hostRoom({
-      onCode: (code) => this.#set({ status: 'waiting', code }),
+      onCode: (code) => this.#set({ status: 'waiting', code, detail: null }),
       onConnected: (t) => this.#attach(t),
       onError: (msg) => this.#fail(msg),
+      onStatus: (detail) => this.#set({ detail }),
     });
   }
 
@@ -66,6 +68,7 @@ export class Lobby {
     this.handle = this.net.joinRoom(code, {
       onConnected: (t) => this.#attach(t),
       onError: (msg) => this.#fail(msg),
+      onStatus: (detail) => this.#set({ detail }),
     });
   }
 
@@ -105,7 +108,7 @@ export class Lobby {
     this.transport = transport;
     transport.onMessage((msg) => this.#onMessage(msg));
     transport.onClose(() => this.#onClosed());
-    this.#set({ status: 'handshake' });
+    this.#set({ status: 'handshake', detail: null });
     this.send(makeHello(this.getMyInfo()));
   }
 

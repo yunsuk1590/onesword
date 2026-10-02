@@ -205,7 +205,11 @@ export const CONFIG = {
     clockIntervalMs: 200, // 호스트가 남은 시간을 알려주는 간격
     remoteSmoothing: 20, // 상대 위치를 부드럽게 따라가는 정도 (클수록 즉각적)
     predictedStaggerMs: 300, // 내가 패링한 상대를 확인 전까지 경직 상태로 보여주는 시간
-    joinTimeoutMs: 12000,
+    joinTimeoutMs: 20000, // 참가 전체 제한 시간
+    connectRetryMs: 6000, // 이 시간 안에 연결이 안 열리면 접속 신호를 다시 보냄
+    joinAttempts: 3, // 접속 신호를 보내는 최대 횟수
+    unavailableRetryMs: 1500, // '방을 찾을 수 없음'일 때 다시 확인하기까지
+    hostHealthCheckMs: 2000, // 방장: 중계 서버 연결이 끊겼는지 확인하는 간격
     opponentColor: 0xc98a2a,
   },
 
