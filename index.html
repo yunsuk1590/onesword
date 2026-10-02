@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>원소드 (One Sword) — 팬메이드</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #1b2030;
+        color: #e8ebf2;
+        font-family: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+        user-select: none;
+      }
+      #app canvas { display: block; }
+      .hidden { display: none !important; }
+
+      /* ── 메뉴 화면 공통 ── */
+      .screen {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        /* safe: 내용이 창보다 길면 위쪽이 잘리지 않고 스크롤되도록 */
+        justify-content: safe center;
+        gap: 16px;
+        padding: 16px;
+        background: rgba(10, 12, 20, 0.72);
+        text-align: center;
+        overflow-y: auto;
+        z-index: 10;
+      }
+
+      /* 오류 표시 (먹통 대신 원인을 보여준다) */
+      #fatal {
+        position: fixed;
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+        z-index: 100;
+        padding: 12px 14px;
+        background: #3a1015;
+        border: 1px solid #ff5a4a;
+        color: #ffd6d0;
+        font: 13px/1.5 Consolas, monospace;
+        white-space: pre-wrap;
+        max-height: 40vh;
+        overflow: auto;
+        user-select: text;
+      }
+      .screen h1 {
+        margin: 0;
+        font-size: clamp(36px, 7vw, 72px);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+      .screen .sub { margin: -6px 0 0; color: #9aa3b5; font-size: 15px; }
+      .section-label { margin: 6px 0 -6px; font-size: 13px; color: #8a93a6; letter-spacing: 0.1em; }
+
+      .btn-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+      button {
+        font: inherit;
+        cursor: pointer;
+        min-width: 112px;
+        padding: 10px 18px;
+        border: 2px solid #5a6275;
+        background: #232938;
+        color: #e8ebf2;
+        font-size: 16px;
+        font-weight: 700;
+        transition: transform 0.08s, background 0.08s, border-color 0.08s;
+      }
+      button:hover { background: #2f3749; transform: translateY(-1px); }
+      button:active { transform: translateY(1px); }
+      button.primary { border-color: #c9a227; color: #f0d36a; }
+      button .desc { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: #8a93a6; }
+      button[data-difficulty='easy'] { border-color: #4f9d5d; }
+      button[data-difficulty='normal'] { border-color: #3f7fbf; }
+      button[data-difficulty='hard'] { border-color: #b0463c; }
+      button[data-difficulty='302'] { border-color: #8a4fd0; color: #d9c2ff; }
+
+      .controls {
+        display: grid;
+        grid-template-columns: auto auto;
+        gap: 5px 18px;
+        font-size: 13px;
+        color: #b9c0cf;
+        text-align: left;
+      }
+      .controls kbd {
+        display: inline-block;
+        min-width: 22px;
+        padding: 1px 7px;
+        border: 1px solid #5a6275;
+        border-radius: 4px;
+        background: #2a3040;
+        color: #e8ebf2;
+        font-family: inherit;
+        font-size: 12px;
+        text-align: center;
+      }
+      .tip {
+        max-width: 480px;
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #9aa3b5;
+      }
+      .tip b { color: #ff9a4a; }
+      .tip i { font-style: normal; color: #ffd84a; }
+
+      /* 시작 화면: 내 빌드 / 상대 빌드 */
+      .build-summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 6px 14px;
+        max-width: 640px;
+        padding: 10px 14px;
+        border: 1px solid #3a4152;
+        background: rgba(0, 0, 0, 0.3);
+        font-size: 14px;
+      }
+      #current-build-name { font-weight: 800; color: #f0d36a; }
+      #current-build-stats { color: #9aa3b5; font-size: 12px; }
+      .build-summary button { min-width: 0; padding: 6px 12px; font-size: 13px; }
+      .opponent-pick { font-size: 13px; color: #b9c0cf; }
+      select {
+        font: inherit;
+        margin-left: 6px;
+        padding: 4px 6px;
+        background: #232938;
+        color: #e8ebf2;
+        border: 1px solid #5a6275;
+      }
+
+      /* 빌드 편집 화면 */
+      #menu-builds h1 { font-size: clamp(28px, 5vw, 44px); }
+      #build-name {
+        font: inherit;
+        width: min(320px, 100%);
+        padding: 8px 12px;
+        background: #1a1f2b;
+        color: #e8ebf2;
+        border: 1px solid #5a6275;
+        text-align: center;
+        font-size: 16px;
+      }
+      #build-points { font-weight: 800; color: #ff9a4a; }
+      #build-points.done { color: #5be38a; }
+      #build-rows { display: flex; flex-direction: column; gap: 8px; width: min(620px, 100%); }
+      .stat-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) auto auto auto minmax(120px, 1fr);
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid #2f3646;
+        text-align: left;
+      }
+      .stat-name b { display: block; font-size: 15px; }
+      .stat-name small { color: #8a93a6; font-size: 11px; }
+      .stat-row .step { min-width: 0; width: 34px; height: 34px; padding: 0; font-size: 18px; }
+      .stat-row .step:disabled { opacity: 0.3; cursor: default; transform: none; }
+      .stat-pips { display: flex; gap: 4px; }
+      .stat-pips span { width: 18px; height: 14px; background: #2a3040; border: 1px solid #4a5265; }
+      .stat-pips span.on { background: #f0d36a; border-color: #f0d36a; }
+      .stat-value { font-size: 13px; color: #cfd5e2; font-variant-numeric: tabular-nums; }
+      #build-msg { min-height: 1.4em; margin: 0; font-size: 13px; color: #5be38a; }
+      #build-msg.error { color: #ff8a7a; }
+      #build-list { list-style: none; margin: 0; padding: 0; width: min(420px, 100%); }
+      #build-list li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #2f3646; }
+      #build-list li.current .link:first-child { color: #f0d36a; }
+      #build-list li.empty { color: #6c7487; justify-content: center; font-size: 13px; }
+      button.link { min-width: 0; padding: 2px 6px; border: none; background: none; font-size: 13px; font-weight: 400; text-align: left; }
+      button.link:hover { background: #2a3040; transform: none; }
+      button.link.danger { color: #ff8a7a; }
+      @media (max-width: 560px) {
+        .stat-row { grid-template-columns: 1fr auto auto auto; }
+        .stat-value { grid-column: 1 / -1; }
+      }
+
+      /* 온라인 대전 화면 */
+      .room-code {
+        font-size: clamp(40px, 9vw, 64px);
+        font-weight: 900;
+        letter-spacing: 0.25em;
+        color: #f0d36a;
+        font-variant-numeric: tabular-nums;
+        user-select: all;
+      }
+      #online-code-box, #online-join-box { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+      #online-code-input {
+        font: inherit;
+        width: 220px;
+        padding: 10px 12px;
+        background: #1a1f2b;
+        color: #f0d36a;
+        border: 1px solid #5a6275;
+        text-align: center;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+      #online-status.error { color: #ff8a7a; }
+      #online-opponent { font-size: 15px; color: #cfd5e2; }
+
+      /* 결과 화면 */
+      #result-title { font-size: clamp(48px, 10vw, 96px); }
+      #result-title.result-win { color: #ffcf4a; }
+      #result-title.result-lose { color: #ff8a7a; }
+      #result-score { margin: 0; font-size: 40px; font-weight: 900; letter-spacing: 0.1em; }
+      #result-rounds { list-style: none; margin: 0; padding: 0; font-size: 15px; line-height: 1.8; }
+      #result-rounds .win { color: #ffcf4a; }
+      #result-rounds .lose { color: #ff8a7a; }
+      #result-rounds .draw { color: #b9c0cf; }
+
+      /* ── HUD ── */
+      #crosshair {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        margin: -3px 0 0 -3px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+      }
+      /* 패링 바 (크로스헤어 아래) */
+      #parry-indicator {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 36px;
+        height: 5px;
+        margin: 14px 0 0 -18px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.45);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+        overflow: hidden;
+        pointer-events: none;
+      }
+      #parry-indicator .fill { height: 100%; width: 100%; background: rgba(140, 150, 170, 0.7); }
+      #parry-indicator.ready .fill { background: rgba(90, 216, 255, 0.85); }
+      #parry-indicator.active .fill { background: #ffffff; }
+      #parry-indicator.active { box-shadow: 0 0 10px #5ad8ff; }
+      #parry-indicator.locked .fill { background: #ff5a4a; }
+
+      #timer {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        min-width: 64px;
+        padding: 2px 10px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 28px;
+        font-weight: 900;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+      }
+      #timer.low { color: #ff6b5b; }
+
+      .bar-wrap {
+        position: fixed;
+        width: min(360px, calc(100vw - 32px));
+        pointer-events: none;
+      }
+      #enemy-bar { top: 64px; left: 50%; transform: translateX(-50%); }
+      #player-bar { bottom: 22px; left: 22px; }
+      #hud.practice #timer, #hud.practice .pips { display: none; }
+      #hud.practice #enemy-bar { top: 18px; }
+      .bar-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        font-size: 14px;
+        font-weight: 700;
+        text-shadow: 0 1px 2px #000;
+      }
+      .bar-head .hp-text { margin-left: auto; }
+      .pips { display: flex; gap: 4px; }
+      .pips span {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .pips span.won { background: #ffcf4a; border-color: #ffcf4a; box-shadow: 0 0 6px #ffcf4a; }
+      .bar {
+        position: relative;
+        height: 14px;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        overflow: hidden;
+      }
+      .bar .lag, .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; }
+      .bar .lag { background: #f4f4f4; }
+      #player-bar .fill { background: linear-gradient(#5be38a, #2fb062); }
+      #enemy-bar .fill { background: linear-gradient(#ff6b5b, #c93b2e); }
+
+      #popup {
+        position: fixed;
+        left: 50%;
+        top: 34%;
+        transform: translate(-50%, -50%);
+        font-size: 30px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+        opacity: 0;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #popup.big { font-size: 52px; }
+      #popup.show { animation: pop 0.65s ease-out forwards; }
+      @keyframes pop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); }
+        15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        75% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
+      }
+      #popup.big.show { animation-duration: 1.2s; }
+
+      #flash {
+        position: fixed;
+        inset: 0;
+        opacity: 0;
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="fatal" class="hidden"></div>
+    <script>
+      // 게임 코드보다 먼저 실행: 어떤 오류든 화면에 표시한다
+      (function () {
+        var box = document.getElementById('fatal');
+        function show(msg) {
+          box.classList.remove('hidden');
+          box.textContent = (box.textContent ? box.textContent + '\n\n' : '오류가 발생했습니다 (이 내용을 알려 주세요)\n\n') + msg;
+        }
+        window.addEventListener('error', function (e) {
+          if (e.error || e.message) show((e.error && e.error.stack) || e.message);
+          else if (e.target && e.target.src) show('파일을 불러오지 못함: ' + e.target.src);
+        }, true);
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e.reason;
+          if (r && r.name === 'NotAllowedError') return; // 포인터 잠금 거부는 게임이 따로 처리
+          show((r && r.stack) || String(r));
+        });
+        window.__showFatal = show;
+      })();
+    </script>
+    <div id="app"></div>
+    <div id="flash"></div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="crosshair"></div>
+      <div id="parry-indicator"><div class="fill"></div></div>
+      <div id="timer">90</div>
+      <div id="enemy-bar" class="bar-wrap">
+        <div class="bar-head"><span class="bar-label"></span><span class="pips"></span><span class="hp-text"></span></div>
+        <div class="bar"><div class="lag"></div><div class="fill"></div></div>
+      </div>
+      <div id="player-bar" class="bar-wrap">
+        <div class="bar-head"><span class="bar-label"></span><span class="pips"></span><span class="hp-text"></span></div>
+        <div class="bar"><div class="lag"></div><div class="fill"></div></div>
+      </div>
+      <div id="popup"></div>
+    </div>
+
+    <!-- 시작 화면 -->
+    <div id="menu-start" class="screen hidden">
+      <h1>ONE SWORD</h1>
+      <p class="sub">원소드 — 팬메이드 칼싸움 · 3판 2선승</p>
+
+      <p class="section-label">내 빌드</p>
+      <div class="build-summary">
+        <span id="current-build-name"></span>
+        <span id="current-build-stats"></span>
+        <button data-action="edit-build">빌드 편집</button>
+      </div>
+
+      <p class="section-label">봇과 대전</p>
+      <label class="opponent-pick">상대 빌드
+        <select id="opponent-build"><option value="random">랜덤</option></select>
+      </label>
+      <div class="btn-row">
+        <button data-start="match" data-difficulty="easy">쉬움<span class="desc">반응이 느림</span></button>
+        <button data-start="match" data-difficulty="normal">보통<span class="desc">가끔 패링</span></button>
+        <button data-start="match" data-difficulty="hard">어려움<span class="desc">빈틈을 노림</span></button>
+        <button data-start="match" data-difficulty="302">302명<span class="desc">끝까지 남은 고인물</span></button>
+      </div>
+      <div class="btn-row">
+        <button data-start="practice">패링 연습<span class="desc">허수아비</span></button>
+      </div>
+
+      <p class="section-label">온라인 대전 (친구와 1대1)</p>
+      <div class="btn-row">
+        <button data-online="host">방 만들기<span class="desc">코드를 친구에게</span></button>
+        <button data-online="join">코드로 참가<span class="desc">친구의 코드 입력</span></button>
+      </div>
+
+      <div class="controls">
+        <span><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></span><span>이동</span>
+        <span>마우스</span><span>시점 회전</span>
+        <span>좌클릭</span><span>공격</span>
+        <span>우클릭 (타이밍)</span><span>패링</span>
+        <span>우클릭 (유지)</span><span>방어 — 이동 느려짐, 등 뒤는 못 막음</span>
+        <span><kbd>Space</kbd></span><span>점프</span>
+        <span><kbd>Esc</kbd></span><span>일시정지</span>
+      </div>
+      <p class="tip">
+        상대가 칼을 <b>주황색</b>으로 들어올리면, 내려치기 직전에 우클릭 → 패링!<br />
+        패링당한 상대는 눈이 <i>노랗게</i> 깜빡이는 동안 무방비 — 반격하세요.<br />
+        헛패링하면 크로스헤어 아래 바가 다시 찰 때까지(1초) 방어만 나갑니다.
+      </p>
+    </div>
+
+    <!-- 일시정지 -->
+    <div id="menu-pause" class="screen hidden">
+      <h1>일시정지</h1>
+      <p id="pause-hint" class="sub"></p>
+      <div class="btn-row">
+        <button class="primary" data-action="resume">계속하기</button>
+        <button data-action="quit">메뉴로</button>
+      </div>
+    </div>
+
+    <!-- 온라인 대전 -->
+    <div id="menu-online" class="screen hidden">
+      <h1 id="online-title">온라인 대전</h1>
+      <div id="online-code-box" class="hidden">
+        <div id="online-code" class="room-code"></div>
+        <button id="online-copy">코드 복사</button>
+      </div>
+      <div id="online-join-box" class="hidden">
+        <input id="online-code-input" maxlength="8" placeholder="ABC123" autocomplete="off" spellcheck="false" />
+        <button class="primary" id="online-join-btn">참가</button>
+      </div>
+      <p id="online-status" class="sub"></p>
+      <p id="online-opponent" class="hidden"></p>
+      <div class="btn-row">
+        <button class="primary hidden" id="online-ready">준비 완료</button>
+        <button id="online-leave">나가기</button>
+      </div>
+      <p class="tip">내 빌드는 시작 화면에서 고른 빌드로 싸웁니다. 연결은 처음에만 PeerJS 공개 중계 서버를 거치고, 이후엔 두 브라우저가 직접 주고받습니다.</p>
+    </div>
+
+    <!-- 빌드 편집 -->
+    <div id="menu-builds" class="screen hidden">
+      <h1>빌드 편집</h1>
+      <p class="sub">5가지 스탯에 1~5칸씩, 총 15칸을 나누세요. 3칸이 기본 수치입니다.</p>
+      <input id="build-name" maxlength="16" placeholder="빌드 이름 (최대 16자)" autocomplete="off" />
+      <div id="build-points"></div>
+      <div id="build-rows"></div>
+      <p id="build-msg"></p>
+      <div class="btn-row">
+        <button class="primary" id="build-use">저장하고 사용</button>
+        <button id="build-save">저장만</button>
+        <button id="build-reset">모두 3칸으로</button>
+        <button id="build-back">뒤로</button>
+      </div>
+      <p class="section-label">저장된 빌드 (공격력·방어력·공격속도·이동속도·공격범위)</p>
+      <ul id="build-list"></ul>
+    </div>
+
+    <!-- 결과 -->
+    <div id="menu-result" class="screen hidden">
+      <h1 id="result-title"></h1>
+      <p id="result-sub" class="sub"></p>
+      <p id="result-score"></p>
+      <ul id="result-rounds"></ul>
+      <div class="btn-row">
+        <button class="primary" data-action="retry">다시 하기</button>
+        <button data-action="quit">메뉴로</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
